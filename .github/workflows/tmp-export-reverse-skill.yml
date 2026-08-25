@@ -1,0 +1,52 @@
+name: Temporary reverse-skill source export
+
+on:
+  push:
+    branches:
+      - tmp/reverse-skill-export-20260826
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REPOSITORY: zhaoxuya520/reverse-skill
+  SOURCE_COMMIT: 914f74ad7d42d18d983d5842f8156440d9068399
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch the pinned upstream tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init reverse-skill
+          cd reverse-skill
+          git remote add origin "https://github.com/${SOURCE_REPOSITORY}.git"
+          git fetch --depth=1 origin "${SOURCE_COMMIT}"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${SOURCE_COMMIT}"
+
+      - name: Create a deterministic source ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C reverse-skill archive \
+            --format=zip \
+            --prefix="reverse-skill-${SOURCE_COMMIT}/" \
+            --output="reverse-skill-${SOURCE_COMMIT}.zip" \
+            "${SOURCE_COMMIT}"
+          sha256sum "reverse-skill-${SOURCE_COMMIT}.zip" > "reverse-skill-${SOURCE_COMMIT}.zip.sha256"
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reverse-skill-source-${{ env.SOURCE_COMMIT }}
+          path: |
+            reverse-skill-${{ env.SOURCE_COMMIT }}.zip
+            reverse-skill-${{ env.SOURCE_COMMIT }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
