@@ -36,7 +36,7 @@ jobs:
           git -C reverse-skill archive \
             --format=zip \
             --prefix="reverse-skill-${SOURCE_COMMIT}/" \
-            --output="reverse-skill-${SOURCE_COMMIT}.zip" \
+            --output="../reverse-skill-${SOURCE_COMMIT}.zip" \
             "${SOURCE_COMMIT}"
           sha256sum "reverse-skill-${SOURCE_COMMIT}.zip" > "reverse-skill-${SOURCE_COMMIT}.zip.sha256"
 
