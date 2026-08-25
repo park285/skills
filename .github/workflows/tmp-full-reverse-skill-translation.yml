@@ -1,0 +1,94 @@
+name: Temporary complete reverse-skill English translation
+
+on:
+  push:
+    branches:
+      - tmp/reverse-skill-export-20260826
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_REPOSITORY: zhaoxuya520/reverse-skill
+  SOURCE_COMMIT: 914f74ad7d42d18d983d5842f8156440d9068399
+  NLLB_MODEL: facebook/nllb-200-distilled-600M
+
+jobs:
+  translate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Check out the temporary translation harness
+        uses: actions/checkout@v4
+
+      - name: Restore and verify the structure-preserving translator
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .github/tmp-reverse-skill-translator.part* | base64 -d | gzip -d > translate_reverse_skill.py
+          echo '48d731b8247729af24cb97b1c52139404747552916bca7001f9e989ddd00eced  translate_reverse_skill.py' | sha256sum --check --strict
+          python -m py_compile translate_reverse_skill.py
+
+      - name: Fetch the pinned upstream source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init reverse-skill
+          git -C reverse-skill remote add origin "https://github.com/${SOURCE_REPOSITORY}.git"
+          git -C reverse-skill fetch --depth=1 origin "${SOURCE_COMMIT}"
+          git -C reverse-skill checkout --detach FETCH_HEAD
+          test "$(git -C reverse-skill rev-parse HEAD)" = "${SOURCE_COMMIT}"
+          rm -rf reverse-skill/.git
+
+      - name: Install the offline translation runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check --quiet ctranslate2 transformers sentencepiece torch
+          ct2-transformers-converter --model "${NLLB_MODEL}" --output_dir nllb-ct2 --quantization int8
+
+      - name: Translate Markdown and prompt-bearing support files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python translate_reverse_skill.py \
+            --root reverse-skill \
+            --model-dir nllb-ct2 \
+            --tokenizer "${NLLB_MODEL}" \
+            --batch-size 64 \
+            --progress translation-progress.json \
+            --report machine-translation-report.json
+
+      - name: Package the translated tree
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import zipfile
+          root = Path('reverse-skill')
+          if root.is_dir():
+              with zipfile.ZipFile('reverse-skill-machine-translated.zip', 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as z:
+                  for path in sorted(root.rglob('*')):
+                      if path.is_file():
+                          z.write(path, Path('reverse-skill') / path.relative_to(root))
+          PY
+          if [[ -f reverse-skill-machine-translated.zip ]]; then
+            sha256sum reverse-skill-machine-translated.zip > reverse-skill-machine-translated.zip.sha256
+          fi
+
+      - name: Upload the translation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reverse-skill-machine-translated-${{ env.SOURCE_COMMIT }}
+          path: |
+            reverse-skill-machine-translated.zip
+            reverse-skill-machine-translated.zip.sha256
+            machine-translation-report.json
+            translation-progress.json
+          if-no-files-found: warn
+          retention-days: 1
+          compression-level: 0
